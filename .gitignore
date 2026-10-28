@@ -1,0 +1,27 @@
+# Keil MDK user settings and build output
+*.uvoptx
+*.uvguix.*
+**/Objects/
+**/Listings/
+
+# Compiled firmware artifacts
+*.axf
+*.bin
+*.d
+*.elf
+*.hex
+*.map
+*.o
+*.obj
+
+# Keep source-of-truth MCU and Keil project configuration files
+!*.ioc
+!*.uvproj
+!*.uvprojx
+!*.sct
+!*.scvd
+
+# Local editor and operating system files
+.DS_Store
+Thumbs.db
+*.swp
