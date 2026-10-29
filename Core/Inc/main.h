@@ -57,14 +57,16 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
-#define MCu_ADC_Main_Power_Pin GPIO_PIN_4
-#define MCu_ADC_Main_Power_GPIO_Port GPIOA
-#define GPS_LED_Pin GPIO_PIN_15
-#define GPS_LED_GPIO_Port GPIOA
-#define System_LED_Pin GPIO_PIN_0
-#define System_LED_GPIO_Port GPIOD
-#define GSM_LED_Pin GPIO_PIN_1
-#define GSM_LED_GPIO_Port GPIOD
+#define Serial_Bus_TX_Pin GPIO_PIN_2
+#define Serial_Bus_TX_GPIO_Port GPIOA
+#define Serial_Bus_RX_Pin GPIO_PIN_3
+#define Serial_Bus_RX_GPIO_Port GPIOA
+#define BLUE_LED_Pin GPIO_PIN_15
+#define BLUE_LED_GPIO_Port GPIOA
+#define RED_LED_Pin GPIO_PIN_0
+#define RED_LED_GPIO_Port GPIOD
+#define GREEN_LED_Pin GPIO_PIN_1
+#define GREEN_LED_GPIO_Port GPIOD
 
 /* USER CODE BEGIN Private defines */
 
