@@ -27,7 +27,6 @@ TIM_HandleTypeDef htim1;
 
 UART_HandleTypeDef huart2;
 
-
 /* USER CODE BEGIN PV */
 /* USER CODE END PV */
 
@@ -42,8 +41,9 @@ static void MX_TIM1_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-uint16_t ADC_Val;
-float Pin_Voltage = 1.0f;
+float ADC_Val[20];
+//float Pin_Voltage;
+float Avrage_ACD_Val;
 /* USER CODE END 0 */
 
 /**
@@ -80,7 +80,6 @@ int main(void)
   MX_TIM1_Init();
   /* USER CODE BEGIN 2 */
 	HAL_ADCEx_Calibration_Start(&hadc1);
-	HAL_ADC_Start(&hadc1);
 	HAL_TIM_Base_Start_IT(&htim1);
   /* USER CODE END 2 */
 
@@ -101,7 +100,7 @@ int main(void)
     }
       //--End of PowerFull Start State---
       //--Start of Medium Power State---
-    else if ((Get_Power_Voltage() >13.0f) && (Get_Power_Voltage() < 15.0f))
+    else if ((Get_Power_Voltage() >=13.0f) && (Get_Power_Voltage() < 15.0f))
 
     {
       HAL_GPIO_WritePin(BLUE_LED_GPIO_Port, BLUE_LED_Pin, GPIO_PIN_SET);
@@ -119,16 +118,19 @@ int main(void)
     }
       //--End of Low Power State---
       //--Start of Very Low Power State---
-    else if (Get_Power_Voltage() < 11.0f)
-
-    {
+    else {
+        
+			HAL_GPIO_TogglePin(BLUE_LED_GPIO_Port, BLUE_LED_Pin);
+			HAL_GPIO_TogglePin(RED_LED_GPIO_Port, RED_LED_Pin);
+      HAL_GPIO_TogglePin(GREEN_LED_GPIO_Port, GREEN_LED_Pin);
+			HAL_Delay(500);
+   
 
     }
       //--Start of Very Low Power State---
   }
   }
   /* USER CODE END 3 */
-
 
 /**
   * @brief System Clock Configuration
@@ -203,8 +205,8 @@ static void MX_ADC1_Init(void)
   hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
   hadc1.Init.DMAContinuousRequests = DISABLE;
   hadc1.Init.Overrun = ADC_OVR_DATA_PRESERVED;
-  hadc1.Init.SamplingTimeCommon1 = ADC_SAMPLETIME_160CYCLES_5;
-  hadc1.Init.SamplingTimeCommon2 = ADC_SAMPLETIME_160CYCLES_5;
+  hadc1.Init.SamplingTimeCommon1 = ADC_SAMPLETIME_1CYCLE_5;
+  hadc1.Init.SamplingTimeCommon2 = ADC_SAMPLETIME_1CYCLE_5;
   hadc1.Init.OversamplingMode = DISABLE;
   hadc1.Init.TriggerFrequencyMode = ADC_TRIGGER_FREQ_HIGH;
   if (HAL_ADC_Init(&hadc1) != HAL_OK)
@@ -366,11 +368,19 @@ static void MX_GPIO_Init(void)
 
 float Get_Power_Voltage(void)
 {
-		HAL_ADC_PollForConversion(&hadc1, 10);
-    uint16_t ADC_Val = HAL_ADC_GetValue(&hadc1);
-    Pin_Voltage = ((float)ADC_Val * 3.3f) / 4095.0f;
-    return Pin_Voltage * 11;
-}
+	HAL_ADC_Start(&hadc1);
+	
+		for (int i = 0; i <= 19; i++) 
+			{
+				
+				HAL_ADC_PollForConversion(&hadc1, 10);
+				ADC_Val[i] = HAL_ADC_GetValue(&hadc1);
+				ADC_Val[i] = (ADC_Val[i] * 3.3f) / 4095.0f;
+			};
+		Avrage_ACD_Val = (ADC_Val[0] + ADC_Val[1] + ADC_Val[2] + ADC_Val[3] + ADC_Val[4] + ADC_Val[5] + ADC_Val[6] + ADC_Val[7] + ADC_Val[8] + ADC_Val[9] + ADC_Val[10] + ADC_Val[11] + ADC_Val[12] + ADC_Val[13] + ADC_Val[14] + ADC_Val[15] + ADC_Val[16] + ADC_Val[17] + ADC_Val[18] + ADC_Val[19])/20.0f;
+		
+    return (Avrage_ACD_Val * 11.7f);
+};
 
 /* USER CODE END 4 */
 
