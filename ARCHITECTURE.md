@@ -2,9 +2,9 @@
 
 ## 1. Scope and current state
 
-This document describes the firmware architecture that is present in the repository today, not a proposed or future design.
+This document describes the firmware architecture that is present in the repository today.
 
-The project targets the **STM32G070CBT6** and uses the STM32 Hardware Abstraction Layer (HAL). The current application is an initialization baseline: it configures the system clock, GPIO outputs, and ADC1, then enters an empty infinite loop. No application-level state machine, scheduler, module driver, or sensor-processing layer is currently implemented.
+The project targets the **STM32G070CBT6** and uses the STM32 Hardware Abstraction Layer (HAL). The current application initializes system clock, GPIO outputs, ADC1 with calibration, TIM1 base timer with interrupts, and USART2 communication. In the main loop, it continuously monitors the main power voltage through ADC1 and updates the multi-color LED status indicator accordingly.
 
 ## 2. Runtime startup flow
 
@@ -14,110 +14,108 @@ The entry point is `main()` in `Core/Src/main.c`.
 Reset / startup code
         |
         v
-    main()
+     main()
         |
         v
-    HAL_Init()
+     HAL_Init()
         |
         v
-SystemClock_Config()
+ SystemClock_Config()
         |
         v
-    MX_GPIO_Init()
+     MX_GPIO_Init()
+     MX_ADC1_Init()
+     MX_USART2_UART_Init()
+     MX_TIM1_Init()
         |
         v
-    MX_ADC1_Init()
+  HAL_ADCEx_Calibration_Start(&hadc1)
+  HAL_TIM_Base_Start_IT(&htim1)
         |
         v
-    while (1)  -- currently empty
+     while (1)
+        |
+        +--> Get_Power_Voltage()
+        +--> Update LED states (Full, Medium, Low, Critical Low)
 ```
 
-- `HAL_Init()` initializes the HAL and its tick infrastructure.
-- `SystemClock_Config()` configures the voltage scaling, HSE and PLL, then applies the system and bus clock settings.
-- `MX_GPIO_Init()` configures the three LED signals as push-pull outputs and initializes their output levels low.
-- `MX_ADC1_Init()` configures ADC1 and its regular channel.
-- Initialization errors call `Error_Handler()`, which disables interrupts and loops indefinitely.
+- `HAL_Init()` initializes HAL and SysTick infrastructure.
+- `SystemClock_Config()` configures the internal HSI oscillator (16 MHz) as the system clock source.
+- `MX_GPIO_Init()` configures the 3 LED signals (`BLUE_LED`, `RED_LED`, `GREEN_LED`) as push-pull outputs.
+- `MX_ADC1_Init()` configures ADC1 for analog sampling on channel 4.
+- `MX_USART2_UART_Init()` configures USART2 at 115200 baud (8N1).
+- `MX_TIM1_Init()` configures TIM1 counter with prescaler and period for periodic updates.
+- ADC calibration (`HAL_ADCEx_Calibration_Start`) is executed before any conversions.
+- TIM1 interrupt base is started (`HAL_TIM_Base_Start_IT`).
 
 ## 3. Clock configuration
 
 The current implementation in `SystemClock_Config()` uses:
 
-- HSE enabled as the PLL input.
-- PLLM = DIV1, PLLN = 16, PLLR = DIV2.
-- SYSCLK source = PLLCLK.
+- Internal HSI oscillator enabled (`RCC_HSI_ON`, 16 MHz).
+- PLL is bypassed/disabled (`RCC_PLL_NONE`).
+- SYSCLK source = HSI (16 MHz).
 - AHB and APB1 prescalers = DIV1.
-- Flash latency = 2 wait states.
+- Flash latency = 0 wait states.
 
-The HAL configuration defines `HSE_VALUE` as 8 MHz, so these settings produce a nominal **64 MHz SYSCLK/HCLK/PCLK1** when the physical HSE source matches that value. If the board's external oscillator differs, the HSE definition and clock setup must be reconciled with the hardware.
+Resulting bus clocks: **16 MHz SYSCLK / HCLK / PCLK1**.
 
-## 4. Hardware interface and fixed pin assignments
+## 4. Hardware interface and pin assignments
 
-These pin assignments are part of the PCB interface and must not be reassigned without checking the hardware design.
+Pin assignments configured for the target PCB:
 
 | MCU pin | Signal / user label | Current mode | Initialization |
-| --- | --- | --- | --- |
-| PD0 | `System_LED` | GPIO output, push-pull, no pull | Low |
-| PD1 | `GSM_LED` | GPIO output, push-pull, no pull | Low |
-| PA15 | `GPS_LED` | GPIO output, push-pull, no pull | Low |
-| PA4 | `MCU_ADC_Main_Power` | Analog input, ADC1_IN4 | Configured by ADC MSP initialization |
+| :--- | :--- | :--- | :--- |
+| PA15 | `BLUE_LED` (GPS LED) | GPIO output, push-pull, no pull | Low |
+| PD0  | `RED_LED` (System LED) | GPIO output, push-pull, no pull | Low |
+| PD1  | `GREEN_LED` (GSM LED) | GPIO output, push-pull, no pull | Low |
+| PA4  | `MCU_ADC_Main_Power` | Analog input, ADC1_IN4 | Configured by ADC MSP |
+| PA2  | `Serial_Bus_TX` | USART2 TX, Alternate Function | Configured by UART MSP |
+| PA3  | `Serial_Bus_RX` | USART2 RX, Alternate Function | Configured by UART MSP |
 
-The pin macros are declared in `Core/Inc/main.h`. GPIO port clocks for GPIOA and GPIOD are enabled by `MX_GPIO_Init()`; GPIOF's clock is also enabled there, although no GPIOF pin is currently configured in that function.
+The pin macros are declared in `Core/Inc/main.h`.
 
-## 5. ADC1 data path
+## 5. ADC1 and Power Monitoring data path
 
-ADC1 is initialized in `MX_ADC1_Init()` in `Core/Src/main.c`. The low-level peripheral and pin setup is in `HAL_ADC_MspInit()` in `Core/Src/stm32g0xx_hal_msp.c`.
+ADC1 is initialized in `MX_ADC1_Init()` and calibrated on boot via `HAL_ADCEx_Calibration_Start(&hadc1)`.
 
-Current ADC settings:
+### Settings:
+- Input: Channel 4 (mapped to PA4 / `MCU_ADC_Main_Power`).
+- Resolution: 12-bit, right-aligned (0 to 4095).
+- Conversion: Software-triggered single conversion.
+- Prescaler: Asynchronous DIV2.
+- Sampling time: 1.5 ADC cycles (`ADC_SAMPLETIME_1CYCLE_5`).
 
-- Input: channel 4, mapped to PA4 / `MCU_ADC_Main_Power`.
-- Resolution: 12-bit, right-aligned.
-- Conversion: one regular conversion, software-triggered.
-- Continuous conversion: disabled.
-- DMA requests and oversampling: disabled.
-- ADC clock prescaler: synchronous PCLK divided by 2.
-- Sampling time: common setting 1, configured to 1.5 ADC cycles.
+### Conversion Algorithm (`Get_Power_Voltage`):
+1. Starts conversion with `HAL_ADC_Start(&hadc1)`.
+2. Takes 20 consecutive samples using `HAL_ADC_PollForConversion(&hadc1, 10)` and `HAL_ADC_GetValue(&hadc1)`.
+3. Converts each raw digital reading to voltage at the MCU pin ($V_{pin} = \text{ADC} \times 3.3 / 4095$).
+4. Computes the average pin voltage across the 20 samples (`Avrage_ACD_Val`).
+5. Applies voltage divider scaling factor ($\approx 11.7$) to estimate input supply rail voltage:
+   $$V_{supply} = V_{pin\_avg} \times 11.7$$
 
-At a 64 MHz PCLK1, the configured synchronous ADC clock is nominally 32 MHz. Confirm that the actual clock source, ADC limits, input signal source impedance, and sampling time meet the device datasheet and board requirements.
+### Power State Decision Logic:
+- **Full Power ($\ge 15.0\text{ V}$):** Blue LED = ON, Red LED = ON, Green LED = ON.
+- **Medium Power ($13.0\text{ V} \le V < 15.0\text{ V}$):** Blue LED = ON, Red LED = ON, Green LED = OFF.
+- **Low Power ($11.0\text{ V} \le V \le 13.0\text{ V}$):** Blue LED = ON, Red LED = OFF, Green LED = OFF.
+- **Critical Low Power ($< 11.0\text{ V}$):** Blue, Red, and Green LEDs all toggle every 500 ms.
 
-**Important:** the firmware currently configures ADC1 but does not start conversions, read conversion values, convert raw readings to engineering units, or implement a measurement/control algorithm. The signal label alone does not define the electrical meaning or scaling of the sampled voltage.
+## 6. Interrupt handlers
 
-## 6. Source responsibilities
+Implemented in `Core/Src/stm32g0xx_it.c`:
+- `SysTick_Handler()`: Handles HAL tick increments.
+- `ADC1_IRQHandler()`: Routes to `HAL_ADC_IRQHandler(&hadc1)`.
+- `TIM1_BRK_UP_TRG_COM_IRQHandler()` & `TIM1_CC_IRQHandler()`: Route to `HAL_TIM_IRQHandler(&htim1)`.
+- `USART2_IRQHandler()`: Routes to `HAL_UART_IRQHandler(&huart2)`.
+
+## 7. Source responsibilities
 
 | File | Responsibility |
-| --- | --- |
-| `Core/Src/main.c` | Application entry point, clock configuration, GPIO/ADC initialization, error handler, and main loop. |
-| `Core/Inc/main.h` | HAL include, shared pin macros, and `Error_Handler()` declaration. |
-| `Core/Src/stm32g0xx_hal_msp.c` | HAL MSP setup; enables ADC clock and configures PA4 as analog for ADC1. |
-| `Core/Src/stm32g0xx_it.c` | Cortex-M exception handlers and SysTick handler, which increments the HAL tick. |
-| `Core/Inc/stm32g0xx_it.h` | Interrupt handler declarations. |
-| `Core/Inc/stm32g0xx_hal_conf.h` | HAL module selection and clock-related configuration constants, including `HSE_VALUE`. |
-| `Core/Src/system_stm32g0xx.c` | CMSIS system initialization and core-clock support. |
-| `Drivers/STM32G0xx_HAL_Driver/` | ST-provided STM32G0 HAL drivers. |
-| `Drivers/CMSIS/` | CMSIS core and device support, where included in the repository. |
-
-The repository files available for inspection did not include an STM32CubeMX `.ioc` file or a Keil `.uvprojx` project file at the expected root/subdirectory paths. Verify the actual local project files before relying on those paths or assuming how the project is built.
-
-## 7. Error and interrupt behavior
-
-- HAL initialization/configuration failures route to `Error_Handler()`; its current behavior is to disable interrupts and stop in an infinite loop.
-- `HardFault_Handler()` and `NMI_Handler()` also stop in infinite loops.
-- `SysTick_Handler()` calls `HAL_IncTick()`.
-- No ADC interrupt handler, DMA transfer path, or application-specific interrupt processing is currently implemented.
-
-## 8. Extension boundaries
-
-When application functionality is added, keep hardware initialization separate from application behavior:
-
-1. Preserve the existing PCB pin mappings and clock requirements.
-2. Put ADC sampling and conversion logic in a clearly named application module when it grows beyond a small, local operation.
-3. Keep LED status policy separate from low-level GPIO initialization.
-4. Add peripheral drivers only for interfaces actually present in the hardware and required by the application.
-5. Keep custom code inside the appropriate `USER CODE` regions when editing CubeMX-generated files, and verify generated changes before accepting them.
-
-These are implementation guidelines for future work; they do not describe modules that already exist.
-
-## 9. Build and verification
-
-The project is intended to use STM32CubeMX for peripheral configuration/code generation and Keil MDK-ARM / µVision 5.32 for development. The repository snapshot inspected here did not expose the expected `.ioc` and `.uvprojx` files, so the exact build target, compiler settings, startup-file selection, and debugger configuration could not be verified from those files.
-
-After firmware changes, build with the actual local Keil project and inspect compiler/linker output. Hardware validation should confirm the 64 MHz clock, LED output polarity and behavior, and ADC readings against a known input voltage.
+| :--- | :--- |
+| `Core/Src/main.c` | Entry point, clock config, peripheral inits, `Get_Power_Voltage()`, and main LED control loop. |
+| `Core/Inc/main.h` | Shared pin definitions (`BLUE_LED`, `RED_LED`, `GREEN_LED`, `Serial_Bus_TX`, etc.) and prototypes. |
+| `Core/Src/stm32g0xx_it.c` | Interrupt handlers for SysTick, ADC1, TIM1, and USART2. |
+| `Core/Src/stm32g0xx_hal_msp.c` | HAL MSP layer configuring GPIOs, clocks, and NVIC interrupts for ADC1, TIM1, and USART2. |
+| `Core/Src/system_stm32g0xx.c` | CMSIS system clock support. |
+| `SRM32G070CBT6.ioc` | CubeMX configuration file containing clock tree, pinout, and IP settings. |
+| `MDK-ARM/SRM32G070CBT6.uvprojx` | Keil MDK project configuration. |
