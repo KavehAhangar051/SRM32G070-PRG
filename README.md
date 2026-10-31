@@ -30,18 +30,19 @@ Pin assignments configured for the target PCB:
 
 ## Firmware Peripherals & Features
 
-- **ADC1:** 12-bit resolution, right-aligned, software-triggered single conversion on channel 4. Self-calibration performed at startup (`HAL_ADCEx_Calibration_Start`).
+- **ADC1:** 12-bit resolution, right-aligned, software-triggered single conversion on channel 4 with 39.5 cycles sampling time (`ADC_SAMPLETIME_39CYCLES_5`). Self-calibration performed at startup (`HAL_ADCEx_Calibration_Start`).
 - **USART2:** 115200 baud, 8 data bits, 1 stop bit, no parity, interrupt enabled in NVIC.
-- **TIM1:** 16-bit timer base with periodic update interrupt enabled (`HAL_TIM_Base_Start_IT`), Prescaler = 399, Period = 39999.
-- **Power Voltage Monitoring (`Get_Power_Voltage`):**
-  - Samples ADC channel 4 twenty times per cycle.
-  - Computes averaged ADC reading and converts to raw input pin voltage ($V_{pin} = \text{ADC} \times 3.3 / 4095$).
+- **TIM1:** 16-bit timer base with periodic update interrupt enabled (`HAL_TIM_Base_Start_IT`), Prescaler = 999, Period = 3999.
+- **Power Voltage Monitoring & Hysteresis (`Get_Power_Voltage`, `Update_Power_LEDs`):**
+  - Samples ADC channel 4 sixteen times per cycle with hardware conversion start per sample.
+  - Converts average digital reading to MCU pin voltage ($V_{pin} = \text{ADC} \times 3.3 / 4095$).
   - Multiplies by resistor divider ratio factor ($\approx 11.7$) to determine battery/main power rail voltage.
-  - Visual status levels:
-    - $\ge 15.0\,\text{V}$: High / Full Power (Blue, Red, Green all ON).
-    - $13.0\,\text{V} - 15.0\,\text{V}$: Medium Power (Blue & Red ON, Green OFF).
-    - $11.0\,\text{V} - 13.0\,\text{V}$: Low Power (Blue ON, Red & Green OFF).
-    - $< 11.0\,\text{V}$: Critical Low Power (All LEDs toggling at 500 ms rate).
+  - Applies Exponential Moving Average (EMA) low-pass filter ($\alpha = 0.15$) to eliminate noise and jitter.
+  - Controls LED indicators using a state machine with **$0.2\,\text{V}$ hysteresis deadband** to prevent threshold chatter:
+    - **Full Power ($\ge 15.0\,\text{V}$, drops at $< 14.8\,\text{V}$):** Blue, Red, Green all ON.
+    - **Medium Power ($13.0\,\text{V} - 15.0\,\text{V}$, drops at $< 12.8\,\text{V}$):** Blue & Red ON, Green OFF.
+    - **Low Power ($11.0\,\text{V} - 13.0\,\text{V}$, drops at $< 10.8\,\text{V}$):** Blue ON, Red & Green OFF.
+    - **Critical Low Power ($< 11.0\,\text{V}$, rises at $\ge 11.0\,\text{V}$):** All LEDs toggling non-blockingly every 500 ms.
 
 ## Repository Structure
 

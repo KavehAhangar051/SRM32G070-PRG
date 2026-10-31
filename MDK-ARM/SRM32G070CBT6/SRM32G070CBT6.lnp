@@ -19,6 +19,8 @@
 "srm32g070cbt6\stm32g0xx_hal_cortex.o"
 "srm32g070cbt6\stm32g0xx_hal.o"
 "srm32g070cbt6\stm32g0xx_hal_exti.o"
+"srm32g070cbt6\stm32g0xx_hal_i2c.o"
+"srm32g070cbt6\stm32g0xx_hal_i2c_ex.o"
 "srm32g070cbt6\stm32g0xx_hal_tim.o"
 "srm32g070cbt6\stm32g0xx_hal_tim_ex.o"
 "srm32g070cbt6\stm32g0xx_hal_uart.o"
